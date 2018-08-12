@@ -1,0 +1,141 @@
+apply plugin: 'com.android.library'
+apply plugin: 'digital.wup.android-maven-publish'
+apply plugin: 'com.jfrog.bintray'
+
+android {
+    compileSdkVersion 27
+
+    defaultConfig {
+        minSdkVersion 8
+        targetSdkVersion 27
+        versionName libraryVersion
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        consumerProguardFile "proguard-rules.pro"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+    }
+    lintOptions {
+        abortOnError false
+    }
+}
+
+dependencies {
+    api 'org.mozilla:rhino:1.7.8'
+    implementation 'com.android.support:support-annotations:27.1.0'
+    implementation 'com.jakewharton.android.repackaged:dalvik-dx:7.1.0_r7'
+    androidTestImplementation 'com.android.support.test:runner:1.0.1'
+    androidTestImplementation 'com.android.support.test:rules:1.0.1'
+    androidTestImplementation 'org.yaml:snakeyaml:1.19'
+    androidTestImplementation('com.google.caliper:caliper:1.0-beta-2') {
+        exclude group: 'asm', module: 'asm'
+    }
+}
+
+
+task sourcesJar(type: Jar) {
+    from android.sourceSets.main.java.srcDirs
+    classifier = 'sources'
+}
+
+task javadoc(type: Javadoc) {
+    source = android.sourceSets.main.java.srcDirs
+    source += files('build/generated/source/aidl/release') + files('build/generated/source/apt/release')
+    javadoc.classpath += files(android.getBootClasspath().join(File.pathSeparator))
+    options.with {
+        linksOffline "http://d.android.com/reference", "${android.sdkDirectory.path}/docs/reference"
+        links "http://mozilla.github.io/rhino/javadoc/"
+    }
+    doFirst {
+        try {
+            javadoc.classpath += files(android.libraryVariants.collect { variant -> variant.javaCompile.classpath.files }) + files('build/generated/source/r/release')
+        } catch (e) {
+            logger.warn('failed to get classpath for javadoc', e)
+        }
+    }
+    afterEvaluate {
+        dependsOn assembleRelease
+    }
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    from javadoc
+    classifier = 'javadoc'
+}
+
+ext.createPom = { pom ->
+    pom.withXml {
+        def xml = {
+            name 'rhino-android'
+            description 'Allows to use rhino on android'
+            url 'https://github.com/F43nd1r/rhino-android'
+
+            scm {
+                connection 'scm:git:https://github.com/F43nd1r/rhino-android.git'
+                developerConnection 'scm:git:git@github.com:F43nd1r/rhino-android.git'
+                url 'https://github.com/F43nd1r/rhino-android.git'
+            }
+
+            licenses {
+                license {
+                    name 'The Apache Software License, Version 2.0'
+                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    distribution 'repo'
+                }
+            }
+
+            developers {
+                developer {
+                    id 'f43nd1r'
+                    name 'Lukas Morawietz'
+                }
+            }
+        }
+        xml.resolveStrategy = DELEGATE_FIRST
+        asNode().children().last() + xml
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId 'com.faendir.rhino'
+            version libraryVersion
+            artifact sourcesJar
+            artifact javadocJar
+            from components.android
+            createPom(pom)
+        }
+    }
+}
+
+bintray {
+    user = artifactoryUser
+    key = artifactoryApiKey
+    publications = ['maven']
+    publish = true
+    pkg {
+        repo = 'maven'
+        name = 'rhino-android'
+        websiteUrl = 'https://github.com/F43nd1r/rhino-android'
+        vcsUrl = 'https://github.com/F43nd1r/rhino-android.git'
+        licenses = ['The Apache Software License, Version 2.0']
+        publicDownloadNumbers = true
+        version {
+            name = libraryVersion
+            desc = 'Allows to use rhino on android'
+            mavenCentralSync {
+                sync = true
+                user = ossrhUser
+                password = ossrhPassword
+            }
+        }
+    }
+}
+bintrayUpload.dependsOn(build, javadocJar, sourcesJar, 'generatePomFileForMavenPublication')
